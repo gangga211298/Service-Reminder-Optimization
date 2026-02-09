@@ -1,1 +1,491 @@
 
+
+---------------------------UE KCI---------------------------------------
+
+CREATE OR REPLACE TABLE `kaizenwil2.Support_KCI.tb_spp_ue_kci` AS
+WITH cek_km_values AS (
+  SELECT DISTINCT cek_km
+  FROM `kaizenwil2.data_all.tb_cek_km`
+)
+SELECT 
+    a.*,
+    b.type1 AS Kategori_Pekerjaan,
+    CASE 
+        WHEN b.type1 IN ('GR', 'GO') AND EXISTS (
+             SELECT 1
+             FROM cek_km_values c
+             WHERE REGEXP_CONTAINS(a.Kelompok_Pekerjaan, r'(?i)' || c.cek_km)
+                OR REGEXP_CONTAINS(a.Keluhan, r'(?i)' || c.cek_km)
+                OR REGEXP_CONTAINS(a.Detail_Pekerjaan, r'(?i)' || c.cek_km)
+        )
+        THEN "SBE ditulis GR"
+        ELSE b.type1
+    END AS Status
+FROM `kaizenwil2.Support_KCI.tb_spp_kci` a
+LEFT JOIN `kaizenwil2.data_all.tb_job` b 
+    ON a.Kelompok_Pekerjaan = b.kelompok_job
+ORDER BY Tgl_SPP DESC;
+
+-------------------------------------SBE KCI--------------------------------------------------
+
+CREATE OR REPLACE TABLE kaizenwil2.Support_KCI.tb_spp_sbe_kci AS
+SELECT 
+    a.*,
+FROM kaizenwil2.Support_KCI.tb_spp_ue_kci a
+    WHERE a.Status IN ('SBE', 'SBI','SBE ditulis GR') or a.Kelompok_pekerjaan = 'Ganti Oli'
+    ORDER BY a.Tgl_SPP DESC;
+
+-----------------------------------------GR KCI---------------------------------------------------
+
+CREATE OR REPLACE TABLE kaizenwil2.Support_KCI.tb_spp_gr_kci AS
+SELECT 
+    a.*,
+FROM kaizenwil2.Support_KCI.tb_spp_ue_kci a
+    WHERE a.Status IN ('GR') and a.Kelompok_pekerjaan <> 'Ganti Oli'
+    ORDER BY a.Tgl_SPP DESC;
+
+-----------------------------------------BANK DATA--------------------------------------------------
+
+CREATE OR REPLACE TABLE `kaizenwil2.Support_KCI.tb_bank_data_kci_profilling` AS
+WITH RankedData AS (
+    SELECT 
+        a.*, 
+        ROW_NUMBER() OVER (PARTITION BY a.Nomor_Rangka ORDER BY a.Tgl_SPP DESC) AS rn
+    FROM `kaizenwil2.Support_KCI.tb_spp_kci` a
+),
+SBEData AS (
+    SELECT 
+        sbe.Nomor_Rangka,
+        sbe.Nomor_SPP,
+        sbe.Tgl_SPP,
+        sbe.Kelompok_Pekerjaan,
+        sbe.Status,
+        ROW_NUMBER() OVER (PARTITION BY sbe.Nomor_Rangka ORDER BY sbe.Tgl_SPP DESC) AS rn
+    FROM `kaizenwil2.Support_KCI.tb_spp_sbe_kci` sbe
+),
+LastSBE AS (
+    SELECT 
+        Nomor_Rangka,
+        MAX(CASE WHEN rn = 1 THEN Tgl_SPP END) AS Tgl_Last_SBE,
+        MAX(CASE WHEN rn = 1 THEN Kelompok_Pekerjaan END) AS Job_Last_SBE,
+        MAX(CASE WHEN rn = 1 THEN Status END) AS Status_Last_SBE,
+        MAX(CASE WHEN rn = 2 THEN Tgl_SPP END) AS Tgl_Last_SBE2,
+        MAX(CASE WHEN rn = 2 THEN Kelompok_Pekerjaan END) AS Job_Last_SBE2,
+        MAX(CASE WHEN rn = 2 THEN Status END) AS Status_Last_SBE2,
+        MAX(CASE WHEN rn = 3 THEN Tgl_SPP END) AS Tgl_Last_SBE3,
+        MAX(CASE WHEN rn = 3 THEN Kelompok_Pekerjaan END) AS Job_Last_SBE3,
+        MAX(CASE WHEN rn = 3 THEN Status END) AS Status_Last_SBE3
+    FROM SBEData
+    GROUP BY Nomor_Rangka
+),
+LastSPP_SBE AS (
+    SELECT Nomor_Rangka, Nomor_SPP, Tgl_SPP
+    FROM SBEData
+    WHERE rn = 1
+),
+
+GRData AS (
+    SELECT 
+        gr.Nomor_Rangka,
+        gr.Nomor_SPP,
+        gr.Tgl_SPP,
+        gr.Kelompok_Pekerjaan,
+        gr.Status,
+        ROW_NUMBER() OVER (PARTITION BY gr.Nomor_Rangka ORDER BY gr.Tgl_SPP DESC) AS rn
+    FROM `kaizenwil2.Support_KCI.tb_spp_gr_kci` gr
+),
+LastGR AS (
+    SELECT 
+        Nomor_Rangka,
+        MAX(CASE WHEN rn = 1 THEN Tgl_SPP END) AS Tgl_Last_GR,
+        MAX(CASE WHEN rn = 1 THEN Kelompok_Pekerjaan END) AS Job_Last_GR,
+        MAX(CASE WHEN rn = 1 THEN Status END) AS Status_Last_GR,
+        MAX(CASE WHEN rn = 2 THEN Tgl_SPP END) AS Tgl_Last_GR2,
+        MAX(CASE WHEN rn = 2 THEN Kelompok_Pekerjaan END) AS Job_Last_GR2,
+        MAX(CASE WHEN rn = 2 THEN Status END) AS Status_Last_GR2,
+        MAX(CASE WHEN rn = 3 THEN Tgl_SPP END) AS Tgl_Last_GR3,
+        MAX(CASE WHEN rn = 3 THEN Kelompok_Pekerjaan END) AS Job_Last_GR3,
+        MAX(CASE WHEN rn = 3 THEN Status END) AS Status_Last_GR3
+    FROM GRData
+    GROUP BY Nomor_Rangka
+),
+LastSPP_GR AS (
+    SELECT Nomor_Rangka, Nomor_SPP, Tgl_SPP
+    FROM GRData
+    WHERE rn = 1
+),
+UEData AS (
+    SELECT 
+        ue.Nomor_Rangka,
+        ue.Nomor_SPP,
+        ue.Tgl_SPP,
+        ue.Kelompok_Pekerjaan,
+        ue.Status,
+        ROW_NUMBER() OVER (PARTITION BY ue.Nomor_Rangka ORDER BY ue.Tgl_SPP DESC) AS rn
+    FROM `kaizenwil2.Support_KCI.tb_spp_ue_kci` ue
+),
+LastUE AS (
+    SELECT 
+        Nomor_Rangka,
+        MAX(CASE WHEN rn = 1 THEN Tgl_SPP END) AS Tgl_Last_UE,
+        MAX(CASE WHEN rn = 1 THEN Kelompok_Pekerjaan END) AS Job_Last_UE,
+        MAX(CASE WHEN rn = 1 THEN Status END) AS Status_Last_UE,
+        MAX(CASE WHEN rn = 2 THEN Tgl_SPP END) AS Tgl_Last_UE2,
+        MAX(CASE WHEN rn = 2 THEN Kelompok_Pekerjaan END) AS Job_Last_UE2,
+        MAX(CASE WHEN rn = 2 THEN Status END) AS Status_Last_UE2,
+        MAX(CASE WHEN rn = 3 THEN Tgl_SPP END) AS Tgl_Last_UE3,
+        MAX(CASE WHEN rn = 3 THEN Kelompok_Pekerjaan END) AS Job_Last_UE3,
+        MAX(CASE WHEN rn = 3 THEN Status END) AS Status_Last_UE3
+    FROM UEData
+    GROUP BY Nomor_Rangka
+),
+PromoData AS (
+    SELECT 
+        VIN, 
+        kelompok_promo AS Program,
+        Expired_Date,
+        Sisa_Claim,
+        Status_Expired
+    FROM `kaizenwil2.data_all.tb_promo_clean`
+),
+UtilisasiData AS (
+    SELECT 
+        u.No_Rangka AS Nomor_Rangka,
+        MAX(u.Tanggal_Follow_Up) AS Tgl_Last_FU,
+        ARRAY_AGG(u.Remark ORDER BY u.Tanggal_Follow_Up DESC LIMIT 1)[OFFSET(0)] AS Remark,
+        ARRAY_AGG(u.Note ORDER BY u.Tanggal_Follow_Up DESC LIMIT 1)[OFFSET(0)] AS Note
+    FROM `kaizenwil2.Support_KCI.tb_utilisasi_kci` u
+    GROUP BY u.No_Rangka
+),
+RevenueData AS (
+    SELECT 
+        NoSPP,
+        sum(JasaUmum) as JasaUmum,
+        sum(Part) as Part,
+        sum(Oli) as Oli,
+        sum(Bahan) as Bahan,
+        sum(Sublet) as Sublet,
+        sum(Discount) as Discount,
+        sum(Materai) as Materai,
+        sum(DPP) as DPP,
+        sum(Total) as Total
+    FROM `kaizenwil2.Support_KCI.tb_rev_kci` rev
+    GROUP BY rev.NoSPP
+),
+FinalData AS (
+    SELECT 
+        r.*,
+        ls.Tgl_Last_SBE,
+        ls.Job_Last_SBE,
+        ls.Status_Last_SBE,
+        TIMESTAMP_DIFF(CURRENT_DATE(), ls.Tgl_Last_SBE, MONTH) AS Interval_Last_SBE,
+        ls.Tgl_Last_SBE2,
+        ls.Job_Last_SBE2,
+        ls.Status_Last_SBE2,
+        TIMESTAMP_DIFF(ls.Tgl_Last_SBE, ls.Tgl_Last_SBE2, MONTH) AS Interval_Last_SBE2,
+        ls.Tgl_Last_SBE3,
+        ls.Job_Last_SBE3,
+        ls.Status_Last_SBE3,
+        TIMESTAMP_DIFF(ls.Tgl_Last_SBE2, ls.Tgl_Last_SBE3, MONTH) AS Interval_Last_SBE3,
+
+        lg.Tgl_Last_GR,
+        lg.Job_Last_GR,
+        lg.Status_Last_GR,
+        TIMESTAMP_DIFF(CURRENT_DATE(), lg.Tgl_Last_GR, MONTH) AS Interval_Last_GR,
+        lg.Tgl_Last_GR2,
+        lg.Job_Last_GR2,
+        lg.Status_Last_GR2,
+        TIMESTAMP_DIFF(lg.Tgl_Last_GR, lg.Tgl_Last_GR2, MONTH) AS Interval_Last_GR2,
+        lg.Tgl_Last_GR3,
+        lg.Job_Last_GR3,
+        lg.Status_Last_GR3,
+        TIMESTAMP_DIFF(lg.Tgl_Last_GR2, lg.Tgl_Last_GR3, MONTH) AS Interval_Last_GR3,
+
+        lu.Tgl_Last_UE,
+        lu.Job_Last_UE,
+        lu.Status_Last_UE,
+        TIMESTAMP_DIFF(CURRENT_DATE(), lu.Tgl_Last_UE, MONTH) AS Interval_Last_UE,
+        lu.Tgl_Last_UE2,
+        lu.Job_Last_UE2,
+        lu.Status_Last_UE2,
+        TIMESTAMP_DIFF(lu.Tgl_Last_UE, lu.Tgl_Last_UE2, MONTH) AS Interval_Last_UE2,
+        lu.Tgl_Last_UE3,
+        lu.Job_Last_UE3,
+        lu.Status_Last_UE3,
+        TIMESTAMP_DIFF(lu.Tgl_Last_UE2, lu.Tgl_Last_UE3, MONTH) AS Interval_Last_UE3,
+
+        COALESCE(p.Program, 'NO PROGRAM') AS Program,
+        p.Expired_Date,
+        p.Sisa_Claim,
+        p.Status_Expired,
+        u.Tgl_Last_FU,
+        u.Remark,
+        u.Note,
+        CASE
+            WHEN REGEXP_CONTAINS(r.Telepon_Pelanggan, r'(?i)jual') 
+                OR REGEXP_CONTAINS(r.HP_Pelanggan, r'(?i)jual')
+                OR REGEXP_CONTAINS(r.Nama_Pemakai, r'(?i)jual')
+                OR REGEXP_CONTAINS(r.Telepon_Pemakai, r'(?i)jual')
+                OR REGEXP_CONTAINS(r.HP_Pemakai, r'(?i)jual')
+                OR REGEXP_CONTAINS(u.Remark, r'(?i)jual')
+                OR REGEXP_CONTAINS(u.Note, r'(?i)jual')
+            THEN 'Sudah Dijual'
+            ELSE NULL
+        END AS Cek_Jual,
+        CASE
+            WHEN EXISTS (
+                SELECT 1 
+                FROM `kaizenwil2.Support_KCI.tb_fleet_kci` f
+                WHERE REGEXP_CONTAINS(r.Nama_Pelanggan___STNK_, r'(?i)' || f.string_field_1)
+                AND f.string_field_1 IS NOT NULL
+            )
+            THEN 'Kecualikan'
+            ELSE NULL
+        END AS Fleet_Pengecualian,
+        COALESCE(sb1.Nomor_SPP,g1.Nomor_SPP)as SPP_Last_Service
+
+        -- rev.DPP as Last_Revenue
+
+    FROM RankedData r
+    LEFT JOIN LastSBE ls
+        ON r.Nomor_Rangka = ls.Nomor_Rangka
+    LEFT JOIN LastGR lg
+        ON r.Nomor_Rangka = lg.Nomor_Rangka
+    LEFT JOIN LastUE lu
+        ON r.Nomor_Rangka = lu.Nomor_Rangka
+    LEFT JOIN PromoData p
+        ON r.Nomor_Rangka = p.VIN   
+    LEFT JOIN UtilisasiData u
+        ON r.Nomor_Rangka = u.Nomor_Rangka
+    LEFT JOIN LastSPP_SBE sb1
+        ON r.Nomor_Rangka = sb1.Nomor_Rangka
+    LEFT JOIN LastSPP_GR g1
+        ON r.Nomor_Rangka = g1.Nomor_Rangka
+    -- LEFT JOIN RevenueData rev
+        -- ON r.Nomor_SPP = rev.NoSPP
+    WHERE r.rn = 1
+),
+FinalData2 AS (
+    SELECT 
+    *,
+    rev.DPP as Last_Revenue,
+    CASE
+        WHEN Interval_Last_SBE is NULL THEN 'Belum Pernah SBE'
+        WHEN Interval_Last_SBE <= 6 THEN 'Punctual'
+        WHEN Interval_Last_SBE >6 AND Interval_Last_SBE <= 9 THEN 'Late'
+        WHEN Interval_Last_SBE >9 AND Interval_Last_SBE <= 12 THEN 'Passive'
+        WHEN Interval_Last_SBE >12 THEN 'Inactive'
+        ELSE NULL
+    END AS Current_SBE,
+
+    CASE
+        WHEN Interval_Last_GR is NULL THEN 'Belum Pernah GR'
+        WHEN Interval_Last_GR <= 6 THEN 'Punctual'
+        WHEN Interval_Last_GR >6 AND Interval_Last_GR <= 9 THEN 'Late'
+        WHEN Interval_Last_GR >9 AND Interval_Last_GR <= 12 THEN 'Passive'
+        WHEN Interval_Last_GR >12 THEN 'Inactive'
+        ELSE NULL
+    END AS Current_GR,
+
+    CASE
+        WHEN Interval_Last_UE <= 6 THEN 'Punctual'
+        WHEN Interval_Last_UE >6 AND Interval_Last_UE <= 9 THEN 'Late'
+        WHEN Interval_Last_UE >9 AND Interval_Last_UE <= 12 THEN 'Passive'
+        WHEN Interval_Last_UE >12 THEN 'Inactive'
+        ELSE NULL
+    END AS Current_UE,
+    CASE
+        WHEN Interval_Last_SBE2 IS NULL AND Interval_Last_SBE3 IS NULL THEN NULL
+        WHEN Interval_Last_SBE2 IS NOT NULL AND Interval_Last_SBE3 IS NULL THEN CAST(Interval_Last_SBE2 AS STRING)
+        WHEN Interval_Last_SBE2 IS NOT NULL AND Interval_Last_SBE3 IS NOT NULL THEN CAST((Interval_Last_SBE2 + Interval_Last_SBE3) / 2.2 AS STRING)
+            ELSE NULL
+        END AS Interval_Habit_SBE,
+
+    CASE
+        WHEN Interval_Last_GR2 IS NULL AND Interval_Last_GR3 IS NULL THEN NULL
+        WHEN Interval_Last_GR2 IS NOT NULL AND Interval_Last_GR3 IS NULL THEN CAST(Interval_Last_GR2 AS STRING)
+        WHEN Interval_Last_GR2 IS NOT NULL AND Interval_Last_GR3 IS NOT NULL THEN CAST((Interval_Last_GR2 + Interval_Last_GR3) / 2.2 AS STRING)
+            ELSE NULL
+        END AS Interval_Habit_GR,
+
+    CASE
+            WHEN Interval_Last_UE2 IS NULL AND Interval_Last_UE3 IS NULL THEN NULL
+            WHEN Interval_Last_UE2 IS NOT NULL AND Interval_Last_UE3 IS NULL THEN CAST(Interval_Last_UE2 AS STRING)
+            WHEN Interval_Last_UE2 IS NOT NULL AND Interval_Last_UE3 IS NOT NULL THEN CAST(ROUND((Interval_Last_UE2 + Interval_Last_UE3) / 2.2) AS STRING)
+            ELSE NULL
+        END AS Interval_Habit_UE
+FROM FinalData
+LEFT JOIN RevenueData rev
+    ON FinalData.SPP_Last_Service = rev.NoSPP
+),
+FinalData3 AS (
+    SELECT 
+    *,
+    CASE
+    WHEN CAST(Interval_Habit_SBE AS NUMERIC) <= 6 THEN 'Punctual'
+    WHEN CAST(Interval_Habit_SBE AS NUMERIC) > 6 AND CAST(Interval_Habit_SBE AS NUMERIC) <= 9 THEN 'Late'
+    WHEN CAST(Interval_Habit_SBE AS NUMERIC) > 9 AND CAST(Interval_Habit_SBE AS NUMERIC) <= 12 THEN 'Passive'
+    WHEN CAST(Interval_Habit_SBE AS NUMERIC) > 12 THEN 'Inactive'
+    WHEN Current_SBE = 'Belum Pernah SBE' THEN 'Belum Pernah SBE'
+    ELSE 'One Time'
+    END AS Habit_SBE,
+
+    CASE
+    WHEN CAST(Interval_Habit_GR AS NUMERIC) <= 6 THEN 'Punctual'
+    WHEN CAST(Interval_Habit_GR AS NUMERIC) > 6 AND CAST(Interval_Habit_GR AS NUMERIC) <= 9 THEN 'Late'
+    WHEN CAST(Interval_Habit_GR AS NUMERIC) > 9 AND CAST(Interval_Habit_GR AS NUMERIC) <= 12 THEN 'Passive'
+    WHEN CAST(Interval_Habit_GR AS NUMERIC) > 12 THEN 'Inactive'
+    WHEN Current_GR = 'Belum Pernah GR' THEN 'Belum Pernah GR'
+    ELSE 'One Time'
+    END AS Habit_GR,
+
+    CASE
+    WHEN CAST(Interval_Habit_UE AS NUMERIC) <= 6 THEN 'Punctual'
+    WHEN CAST(Interval_Habit_UE AS NUMERIC) > 6 AND CAST(Interval_Habit_UE AS NUMERIC) <= 9 THEN 'Late'
+    WHEN CAST(Interval_Habit_UE AS NUMERIC) > 9 AND CAST(Interval_Habit_UE AS NUMERIC) <= 12 THEN 'Passive'
+    WHEN CAST(Interval_Habit_UE AS NUMERIC) > 12 THEN 'Inactive'
+    ELSE 'One Time'
+    END AS Habit_UE,
+    
+    FROM FinalData2
+),
+FinalData4 AS (
+SELECT 
+    *,
+    CASE
+    WHEN Job_Last_SBE = 'SBI 1000 KM' AND TIMESTAMP_DIFF(CURRENT_DATE(), Tgl_Last_SBE, MONTH) >= 4 THEN 'Potensi 01 : SBE 10K'
+    WHEN TIMESTAMP_DIFF(CURRENT_DATE(), Tgl_Last_SBE, MONTH) = 6 THEN 'Potensi 02 : SBE Punctual'
+    WHEN TIMESTAMP_DIFF(CURRENT_DATE(), Tgl_Last_SBE, MONTH) >= 7 AND TIMESTAMP_DIFF(CURRENT_DATE(), Tgl_Last_SBE, MONTH) <= 9 THEN 'Potensi 03 : SBE Late'
+    WHEN TIMESTAMP_DIFF(CURRENT_DATE(), Tgl_Last_SBE, MONTH) >= 10 AND TIMESTAMP_DIFF(CURRENT_DATE(), Tgl_Last_SBE, MONTH) <= 12 THEN 'Potensi 05 : SBE Passive'
+    WHEN TIMESTAMP_DIFF(CURRENT_DATE(), Tgl_Last_SBE, MONTH) >= 13 THEN 'Potensi 06 : SBE Inactive'
+    WHEN TIMESTAMP_DIFF(CURRENT_DATE(), Tgl_Last_SBE, MONTH) < 6 AND CAST(Interval_Habit_SBE AS NUMERIC) = TIMESTAMP_DIFF(CURRENT_DATE(), Tgl_Last_SBE, MONTH) THEN 'Potensi 04 : SBE by Habit'
+    WHEN Tgl_Last_SBE is null THEN 'Belum Pernah SBE'
+    ELSE 'Bukan Potensi'
+    END AS RealPotensiSBE,
+    
+    CASE
+    WHEN TIMESTAMP_DIFF(CURRENT_DATE(), Tgl_Last_GR, MONTH) = 6 THEN 'Potensi 07 : GR Punctual'
+    WHEN TIMESTAMP_DIFF(CURRENT_DATE(), Tgl_Last_GR, MONTH) >= 7 AND TIMESTAMP_DIFF(CURRENT_DATE(), Tgl_Last_GR, MONTH) <= 9 THEN 'Potensi 08 : GR Late'
+    WHEN TIMESTAMP_DIFF(CURRENT_DATE(), Tgl_Last_GR, MONTH) >= 10 AND TIMESTAMP_DIFF(CURRENT_DATE(), Tgl_Last_GR, MONTH) <= 12 THEN 'Potensi 09 : GR Passive'
+    WHEN TIMESTAMP_DIFF(CURRENT_DATE(), Tgl_Last_GR, MONTH) >= 13 THEN 'Potensi 10 : GR Inactive'
+    WHEN TIMESTAMP_DIFF(CURRENT_DATE(), Tgl_Last_GR, MONTH) < 6 AND CAST(Interval_Habit_GR AS NUMERIC) = TIMESTAMP_DIFF(CURRENT_DATE(), Tgl_Last_GR, MONTH) THEN 'Potensi 11 : GR by Habit'
+    WHEN Tgl_Last_GR is null THEN 'Belum Pernah GR'
+    ELSE 'Bukan Potensi'
+    END AS RealPotensiGR
+FROM FinalData3),
+
+FinalData5 AS (
+SELECT 
+    *,
+    CASE
+    WHEN RealPotensiSBE = 'Potensi 1 : SBE 10K' THEN 'Potensi 1 : SBE 10K'
+    WHEN RealPotensiSBE = 'Potensi 2 : SBE Punctual' THEN 'Potensi 2 : SBE Punctual'
+    WHEN RealPotensiSBE = 'Potensi 3 : SBE Late' THEN 'Potensi 3 : SBE Late'
+    WHEN RealPotensiSBE = 'Potensi 4 : SBE by Habit' THEN 'Potensi 4 : SBE by Habit'
+    WHEN RealPotensiSBE = 'Potensi 5 : SBE Passive' THEN 'Potensi 5 : SBE Passive'
+
+    WHEN RealPotensiSBE IN ('Potensi 6 : SBE Inactive','Belum Pernah SBE') AND RealPotensiGR = 'Potensi 7 : GR Punctual' THEN 'Potensi 7 : GR Punctual'
+    WHEN RealPotensiSBE IN ('Potensi 6 : SBE Inactive','Belum Pernah SBE') AND RealPotensiGR = 'Potensi 8 : GR Late' THEN 'Potensi 8 : GR Late'
+    WHEN RealPotensiSBE IN ('Potensi 6 : SBE Inactive','Belum Pernah SBE') AND RealPotensiGR = 'Potensi 9 : GR Passive' THEN 'Potensi 9 : GR Passive'
+    WHEN RealPotensiSBE IN ('Potensi 6 : SBE Inactive','Belum Pernah SBE') AND RealPotensiGR = 'Potensi 10 : GR Inactive' THEN 'Potensi 10 : GR Inactive'
+    WHEN RealPotensiSBE IN ('Potensi 6 : SBE Inactive','Belum Pernah SBE') AND RealPotensiGR = 'Potensi 11 : GR by Habit' THEN 'Potensi 11 : GR by Habit'
+    WHEN RealPotensiSBE ='Potensi 6 : SBE Inactive' AND RealPotensiGR = 'Bukan Potensi' THEN 'Potensi 6 : SBE Inactive'
+    WHEN RealPotensiSBE ='Potensi 6 : SBE Inactive' AND RealPotensiGR = 'Belum Pernah GR' THEN 'Potensi 6 : SBE Inactive'
+
+    WHEN RealPotensiSBE ='Belum Pernah SBE' AND RealPotensiGR = 'Bukan Potensi' THEN 'Bukan Potensi'
+    WHEN RealPotensiSBE ='Belum Pernah SBE' AND RealPotensiGR = 'Belum Pernah GR' THEN 'Bukan Potensi'
+
+    WHEN RealPotensiSBE ='Bukan Potensi' THEN 'Bukan Potensi'
+
+    ELSE RealPotensiSBE
+    END AS RealPotensiUHUY
+FROM FinalData4),
+
+FinalData6 AS (
+    SELECT 
+    *,
+    tt.string_field_1 as Group_Kategory,
+    Case when Last_revenue <= 2000000 then 'Low Revenue'
+    when Last_revenue > 2000000 and Last_revenue <= 3000000 then 'Medium Revenue'
+    when Last_revenue > 3000000 then 'High Revenue'
+    End as Revenue_Type2
+
+    FROM FinalData5
+    left join `data_all.tb_type` tt
+    on tt.string_field_0 = FinalData5.Group_Kendaraan
+    ORDER BY Tgl_SPP DESC
+)
+
+SELECT 
+    Nomor_Rangka,
+    FinalData6.Tgl_SPP as Last_tglSPP,
+    Nomor_Polisi,
+    SPP_last_Service as Last_NoSPP,
+    Type_Kendaraan,Group_Kendaraan,Tahun,
+    Group_Kategory,
+    Nama_Pelanggan___STNK_,Telepon_Pelanggan,Telepon_Kantor,HP_Pelanggan,
+    Nama_Pemakai,Telepon_Pemakai,
+    Nama_SA,Nama_Foreman,Nama_Mekanik,
+    Up_Selling, Item_Up_Selling, Cross_Selling, Item_Cross_Selling,
+    Tgl_Last_SBE,
+    Job_Last_SBE,
+    Status_Last_SBE,
+    Interval_Last_SBE,
+    Tgl_Last_SBE2,
+    Job_Last_SBE2,
+    Status_Last_SBE2,
+    Interval_Last_SBE2,
+    Tgl_Last_SBE3,
+    Job_Last_SBE3,
+    Status_Last_SBE3,
+    Interval_Last_SBE3,
+    Last_Revenue,
+    Revenue_Type2,
+    epk.LT_Masuk_Notifikasi as Last_LeadTime,
+    Program,Expired_Date,Sisa_Claim,Status_Expired,
+    
+    Tgl_Last_FU,Remark,Note,
+    Habit_SBE, Current_SBE,
+    Habit_GR, Current_GR,
+    RealPotensiUHUY,
+    sjt.Analisis_Kondisi as Analisa_Kondisi,
+    sjt.Saran_Tindakan as Saran_Tindakan,
+    CASE 
+    WHEN Habit_SBE = 'Punctual' AND Current_SBE = 'Punctual' THEN 1
+    WHEN Habit_SBE = 'Punctual' AND Current_SBE = 'Late' THEN 2
+    WHEN Habit_SBE = 'Late' AND Current_SBE = 'Punctual' THEN 3
+    WHEN Habit_SBE = 'One Time' AND Current_SBE = 'Punctual' THEN 4
+    WHEN Habit_SBE = 'Late' AND Current_SBE = 'Late' THEN 5
+    WHEN Habit_SBE = 'One Time' AND Current_SBE = 'Late' THEN 6
+    WHEN Habit_SBE = 'Passive' AND Current_SBE = 'Punctual' THEN 7
+    WHEN Habit_SBE = 'Passive' AND Current_SBE = 'Late' THEN 8
+    WHEN Habit_SBE = 'Inactive' AND Current_SBE = 'Punctual' THEN 9
+    WHEN Habit_SBE = 'Inactive' AND Current_SBE = 'Late' THEN 10
+    WHEN Habit_SBE = 'Punctual' AND Current_SBE = 'Passive' THEN 11
+    WHEN Habit_SBE = 'Late' AND Current_SBE = 'Passive' THEN 12
+    WHEN Habit_SBE = 'Passive' AND Current_SBE = 'Passive' THEN 13
+    WHEN Habit_SBE = 'Inactive' AND Current_SBE = 'Passive' THEN 14
+    WHEN Habit_SBE = 'One Time' AND Current_SBE = 'Passive' THEN 15
+    WHEN Habit_SBE = 'Punctual' AND Current_SBE = 'Inactive' THEN 16
+    WHEN Habit_SBE = 'Late' AND Current_SBE = 'Inactive' THEN 17
+    WHEN Habit_SBE = 'Passive' AND Current_SBE = 'Inactive' THEN 18
+    WHEN Habit_SBE = 'Inactive' AND Current_SBE = 'Inactive' THEN 19
+    WHEN Habit_SBE = 'One Time' AND Current_SBE = 'Inactive' THEN 20
+    ELSE 21
+    END AS Prioritas
+
+
+
+    FROM FinalData6
+    LEFT JOIN `Support_KCI.tb_epk_kci` epk
+    on epk.Nomor_SPP = FinalData6.SPP_Last_Service
+    LEFT JOIN `data_all.tb_saran_senjata` sjt
+    on sjt.Habit = FinalData6.Habit_SBE
+    and sjt.Current = FinalData6.Current_SBE
+    and sjt.Model_Type = FinalData6.Group_Kategory
+    and sjt.Revenue_Type = FinalData6.Revenue_Type2
+    WHERE
+    (Cek_Jual <> 'Sudah Dijual' OR Cek_Jual IS NULL) 
+    AND (Fleet_Pengecualian <> 'Kecualikan' OR Fleet_Pengecualian IS NULL)
+    AND RealPotensiUHUY <> 'Bukan Potensi'
+    order by Last_tglSPP DESC;
